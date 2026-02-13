@@ -1,0 +1,78 @@
+
+
+
+Based on the documentation provided in the Hyperliquid (HyperCore) GitBook and related developer resources, the standard and most efficient way to subscribe to real-time market and account data is through their **WebSocket API** [4.7]. 
+
+Here is a step-by-step plan to subscribe to the data feeds on Hyperliquid.
+
+### Step 1: Choose Your Network Endpoint
+Hyperliquid provides two primary WebSocket URLs depending on whether you are trading/testing with real assets or virtual funds [4.7]:
+*   **Mainnet:** `wss://api.hyperliquid.xyz/ws` [4.7]
+*   **Testnet:** `wss://api.hyperliquid-testnet.xyz/ws` [4.7]
+
+### Step 2: Determine Your Subscription Types
+Once connected, you must send a JSON payload requesting access to specific "channels." You can subscribe to public market data or private user data [4.8]. 
+
+Here are the most common subscription types:
+*   **Trades:** Real-time stream of executed trades for a specific coin.
+    *   *Payload:* `{"type": "trades", "coin": "ETH"}` [4.7, 4.8]
+*   **BBO (Best Bid & Offer):** Streams the top of the order book for low-latency pricing [4.8].
+    *   *Payload:* `{"type": "bbo", "coin": "ETH"}` [4.8]
+*   **L2 Order Book:** The standard Layer 2 order book updates [4.9].
+    *   *Payload:* `{"type": "l2Book", "coin": "ETH"}`
+*   **User Order Updates (Private):** Streams real-time updates regarding your specific placed, canceled, and filled orders [4.8].
+    *   *Payload:* `{"type": "orderUpdates", "user": "0xYourWalletAddress..."}` [4.8]
+*   **Explorer Blocks:** Streams new blocks created on the Hyperliquid L1 chain (HyperCore/HyperEVM) [4.11].
+    *   *Payload:* `{"type": "explorerBlock"}`[4.11]
+
+### Step 3: Write the Connection & Subscription Logic
+You can interact with the WebSocket using languages like Python, JavaScript/TypeScript, or directly from the command line using `wscat` [4.7]. 
+
+**Example via Command Line (`wscat`):**
+```bash
+wscat -c wss://api.hyperliquid.xyz/ws
+# Once connected, type the following to subscribe:
+{"method": "subscribe", "subscription": {"type": "trades", "coin": "SOL"}}
+```
+
+**Example via Python (`websockets` library):**
+```python
+import asyncio
+import websockets
+import json
+
+async def hyperliquid_subscribe():
+    url = "wss://api.hyperliquid.xyz/ws"
+    
+    async with websockets.connect(url) as websocket:
+        # 1. Define the subscription payload
+        subscribe_message = {
+            "method": "subscribe",
+            "subscription": {
+                "type": "trades",
+                "coin": "SOL"
+            }
+        }
+        
+        # 2. Send the request
+        await websocket.send(json.dumps(subscribe_message))
+        print("Subscription request sent.")
+        
+        # 3. Listen to the data stream indefinitely
+        try:
+            while True:
+                response = await websocket.recv()
+                data = json.loads(response)
+                print("Received data:", data)
+        except websockets.exceptions.ConnectionClosed:
+            print("Connection closed by the server.")
+
+# Run the async loop
+asyncio.run(hyperliquid_subscribe())
+```
+
+### Step 4: Implement Best Practices (Crucial for Hyperliquid)
+According to the Hyperliquid API documentation, you need to account for a few system-specific behaviors to maintain a stable data feed:
+1.  **Handle Disconnections Gracefully:** The API servers periodically drop connections without warning [4.7]. Your code *must* have a try/catch block that automatically rebuilds the WebSocket connection and resends your subscription requests [4.7].
+2.  **Snapshot Acknowledgments:** When you disconnect and reconnect, missed data is often summarized in a "snapshot ack" upon your return [4.7]. Alternatively, you can hit their HTTP `/info` endpoints to fetch any missing historical gaps [4.7].
+3.  **Manage Rate Limits:** If you are subscribing to heavy firehoses of data (like the `explorerBlock` or L2 feeds for many coins), keep in mind that block creation takes ~200ms (5 blocks a second) [4.11]. If you couple websockets with simultaneous REST API polling, be careful not to hit their strict HTTP 429 rate limits [4.11].

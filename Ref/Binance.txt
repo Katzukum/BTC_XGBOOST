@@ -1,0 +1,6 @@
+https://developers.binance.com/docs/binance-spot-api-docs/websocket-api/general-api-information
+https://developers.binance.com/docs/binance-spot-api-docs/websocket-api/rate-limits
+https://developers.binance.com/docs/binance-spot-api-docs/websocket-api/data-sources
+https://developers.binance.com/docs/binance-spot-api-docs/websocket-api/request-format
+https://developers.binance.com/docs/binance-spot-api-docs/web-socket-streams
+https://developers.binance.com/docs/binance-spot-api-docs/websocket-api/market-data-requests

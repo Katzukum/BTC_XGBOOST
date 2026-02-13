@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BTC XGBoost Command Dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script type="text/javascript" src="/eel.js"></script>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar" id="topbar"></header>
+  <main class="layout">
+    <section class="card left-col">
+      <h2>Cumulative PNL</h2>
+      <canvas id="pnlChart"></canvas>
+      <div class="metrics" id="perfMetrics"></div>
+    </section>
+
+    <section class="card center-col">
+      <h2>Execution & Analysis</h2>
+      <div class="split"><canvas id="priceChart"></canvas><canvas id="equityChart"></canvas></div>
+      <h3>Order Feed</h3>
+      <div class="feed" id="orderFeed"></div>
+      <h3>Cross-Exchange Signal Flow</h3>
+      <div class="signal-grid" id="signalFlow"></div>
+      <h3>Execution Pipeline</h3>
+      <div class="pipeline" id="pipeline"></div>
+    </section>
+
+    <section class="card right-col">
+      <h2>Positions Log</h2>
+      <div class="positions" id="positionsLog"></div>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

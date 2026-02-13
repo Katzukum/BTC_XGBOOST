@@ -8,6 +8,7 @@ dependencies = [
     "binance-connector>=3.12.0",
     "colorama>=0.4.6",
     "dash>=4.0.0",
+    "eel>=0.18.2",
     "joblib>=1.5.3",
     "pandas>=3.0.0",
     "plotly>=6.5.2",

@@ -24,9 +24,16 @@ class DashboardService:
         except Exception:
             self.predictor = None
 
-    def _read_ohlcv(self, limit: int = 250):
+    def _read_ohlcv(self, limit: int = 250, timeframe: str = "1m"):
         if not os.path.exists(self.ohlcv_db):
             return []
+
+        # Map timeframe to minutes
+        tf_map = {"1m": 1, "5m": 5, "15m": 15, "1h": 60, "4h": 240}
+        minutes = tf_map.get(timeframe, 1)
+
+        # Fetch more data if aggregating
+        fetch_limit = limit * minutes
 
         conn = sqlite3.connect(self.ohlcv_db)
         cursor = conn.cursor()
@@ -38,7 +45,7 @@ class DashboardService:
                 ORDER BY timestamp DESC
                 LIMIT ?
                 """,
-                (limit,),
+                (fetch_limit,),
             )
             rows = cursor.fetchall()
         except sqlite3.OperationalError:
@@ -46,8 +53,10 @@ class DashboardService:
         finally:
             conn.close()
 
+        # Data comes in DESC (newest first). Reverse to ASC for processing
         rows = list(reversed(rows))
-        return [
+        
+        raw_candles = [
             {
                 "timestamp": r[0],
                 "open": r[1],
@@ -58,6 +67,57 @@ class DashboardService:
             }
             for r in rows
         ]
+
+        if timeframe == "1m":
+             return raw_candles
+
+        # Aggregation Logic
+        aggregated = []
+        current_candle = None
+        
+        # Helper to align timestamp to timeframe bucket
+        def align_time(ts, mins):
+            dt = datetime.fromtimestamp(ts / 1000, tz=timezone.utc)
+            # Round down to nearest 'mins'
+            minute = (dt.minute // mins) * mins
+            truncated = dt.replace(minute=minute, second=0, microsecond=0)
+            return int(truncated.timestamp() * 1000)
+
+        for c in raw_candles:
+            ts = c["timestamp"]
+            bucket_ts = align_time(ts, minutes)
+
+            if current_candle is None:
+                current_candle = {
+                    "timestamp": bucket_ts,
+                    "open": c["open"],
+                    "high": c["high"],
+                    "low": c["low"],
+                    "close": c["close"],
+                    "volume": c["volume"]
+                }
+            elif bucket_ts == current_candle["timestamp"]:
+                # Update current candle
+                current_candle["high"] = max(current_candle["high"], c["high"])
+                current_candle["low"] = min(current_candle["low"], c["low"])
+                current_candle["close"] = c["close"]
+                current_candle["volume"] += c["volume"]
+            else:
+                # New bucket, push old candle
+                aggregated.append(current_candle)
+                current_candle = {
+                    "timestamp": bucket_ts,
+                    "open": c["open"],
+                    "high": c["high"],
+                    "low": c["low"],
+                    "close": c["close"],
+                    "volume": c["volume"]
+                }
+        
+        if current_candle:
+            aggregated.append(current_candle)
+
+        return aggregated[-limit:]
 
     def _read_trades(self, limit: int = 120):
         if not os.path.exists(self.trades_db):
@@ -118,8 +178,8 @@ class DashboardService:
             return None
         return None
 
-    def get_snapshot(self):
-        candles = self._read_ohlcv()
+    def get_snapshot(self, timeframe: str = "1m"):
+        candles = self._read_ohlcv(timeframe=timeframe)
         trades = self._read_trades()
         prediction = self._prediction()
 
@@ -207,6 +267,7 @@ class DashboardService:
                 "prices": closes[-120:],
                 "equity": [round(sum(pnls[: i + 1]), 2) for i in range(len(pnls))][-120:],
                 "volumes": volumes[-120:],
+                "candles": candles, 
             },
             "order_feed": order_feed,
             "signal_flow": signal_flow,

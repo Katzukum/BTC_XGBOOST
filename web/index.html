@@ -1,39 +1,166 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
+
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>BTC XGBoost Command Dashboard</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>High Frequency Trading Dashboard</title>
+
+  <!-- Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link
+    href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Roboto+Mono:wght@300;400;500;700&display=swap"
+    rel="stylesheet">
+
+  <!-- Chart.js (Keep for PnL if needed, or replace later) -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <!-- ApexCharts -->
+  <script src="https://cdn.jsdelivr.net/npm/apexcharts"></script>
+  <!-- Eel -->
   <script type="text/javascript" src="/eel.js"></script>
-  <link rel="stylesheet" href="styles.css" />
+
+  <link rel="stylesheet" href="styles.css">
 </head>
+
 <body>
-  <header class="topbar" id="topbar"></header>
-  <main class="layout">
-    <section class="card left-col">
-      <h2>Cumulative PNL</h2>
-      <canvas id="pnlChart"></canvas>
-      <div class="metrics" id="perfMetrics"></div>
+
+  <!-- Header -->
+  <header>
+    <div class="header-item">
+      <span class="header-label">BTC</span>
+      <span class="bold" id="headerPrice">--</span>
+    </div>
+    <div class="header-item">
+      <span class="header-label">PNL</span>
+      <span class="bold" id="headerPnl">--</span>
+    </div>
+    <div class="header-item">
+      <span class="header-label">TODAY</span>
+      <span class="bold" id="headerDaily">--</span>
+    </div>
+    <div class="header-item">
+      <span class="header-label">WIN</span>
+      <span class="bold" id="headerWin">--</span>
+    </div>
+    <div class="header-item">
+      <span class="header-label">TRADES</span>
+      <span class="bold" id="headerTrades">--</span>
+    </div>
+    <div class="header-item">
+      <span class="header-label">OPEN</span>
+      <span class="bold yellow" id="headerOpen">--</span>
+    </div>
+
+    <div class="header-item" style="margin-left: auto;">
+      <div class="col" style="text-align: right;">
+        <span class="header-label">NEXT WINDOW</span>
+        <span class="countdown" id="headerNextWindow">--</span>
+      </div>
+      <div class="col" style="text-align: right; margin-left: 15px;">
+        <span class="header-label">MARKET</span>
+        <span style="color:#aaa;" id="headerSession">--</span>
+      </div>
+    </div>
+  </header>
+
+  <main>
+    <!-- LEFT COLUMN: Cumulative PNL & Metrics -->
+    <section class="left-col">
+      <div class="panel">
+        <div class="panel-header">CUMULATIVE PNL</div>
+        <div class="big-pnl" id="pnlBig">--</div>
+        <div class="pnl-sub" id="pnlSub">--</div>
+
+        <div class="chart-container-large">
+          <canvas id="pnlChart"></canvas>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="metrics-grid" id="metricsGrid">
+          <!-- Metrics injected by JS -->
+        </div>
+      </div>
+
+      <!-- Bottom: Controls -->
+      <div class="panel controls-panel">
+        <div class="panel-header">CONTROLS</div>
+        <div class="controls-grid">
+          <div class="control-item">
+            <span class="control-label">BINANCE FEED</span>
+            <label class="switch">
+              <input type="checkbox" id="toggleBinance" checked>
+              <span class="slider round"></span>
+            </label>
+          </div>
+          <div class="control-item">
+            <span class="control-label">HYPERLIQUID FEED</span>
+            <label class="switch">
+              <input type="checkbox" id="toggleHyperliquid" checked>
+              <span class="slider round"></span>
+            </label>
+          </div>
+          <div class="control-item">
+            <span class="control-label">SIM TRADE</span>
+            <label class="switch">
+              <input type="checkbox" id="toggleSim" checked>
+              <span class="slider round"></span>
+            </label>
+          </div>
+        </div>
+      </div>
     </section>
 
-    <section class="card center-col">
-      <h2>Execution & Analysis</h2>
-      <div class="split"><canvas id="priceChart"></canvas><canvas id="equityChart"></canvas></div>
-      <h3>Order Feed</h3>
-      <div class="feed" id="orderFeed"></div>
-      <h3>Cross-Exchange Signal Flow</h3>
-      <div class="signal-grid" id="signalFlow"></div>
-      <h3>Execution Pipeline</h3>
-      <div class="pipeline" id="pipeline"></div>
+    <!-- MIDDLE COLUMN: Analysis & Execution -->
+    <section class="mid-col">
+      <!-- Top: Pipeline -->
+      <div class="panel pipeline-panel">
+        <div class="panel-header">EXECUTION PIPELINE</div>
+        <div class="pipeline-container" id="pipelineContainer">
+          <!-- Pipeline injected by JS -->
+        </div>
+      </div>
+
+      <!-- Middle 1: Contract Info -->
+      <div class="panel" id="contractInfoPanel" style="overflow: hidden;">
+        <div class="panel-header">CURRENT CONTRACT</div>
+        <div class="contract-card" id="contractCard">
+          <!-- Contract info injected by JS -->
+        </div>
+      </div>
+
+      <!-- Middle 2: BTC Chart -->
+      <div class="panel chart-area-mid">
+        <div class="panel-header" style="justify-content: space-between; align-items: start;">
+          <div class="col">
+            <!-- BIG PRICE DISPLAY MOVED HERE -->
+            <div class="btc-price-display-large" id="btcPriceDisplay">--</div>
+            <div style="font-size: 10px; color: #555; margin-top: 4px;">BTC/USD · AGGREGATED</div>
+          </div>
+          <div class="timeframe-selector">
+            <button class="tf-btn active" data-tf="1m">1m</button>
+            <button class="tf-btn" data-tf="5m">5m</button>
+            <button class="tf-btn" data-tf="15m">15m</button>
+            <button class="tf-btn" data-tf="1h">1h</button>
+            <button class="tf-btn" data-tf="4h">4h</button>
+          </div>
+        </div>
+
+        <div id="btcChartContainer" style="flex-grow: 1; height: 100%; width: 100%;"></div>
+      </div>
     </section>
 
-    <section class="card right-col">
-      <h2>Positions Log</h2>
-      <div class="positions" id="positionsLog"></div>
+    <!-- RIGHT COLUMN: Positions -->
+    <section class="right-col panel">
+      <div class="panel-header">POSITIONS</div>
+      <div class="positions-list" id="positionsList">
+        <!-- Positions injected by JS -->
+      </div>
     </section>
   </main>
 
   <script src="app.js"></script>
 </body>
+
 </html>

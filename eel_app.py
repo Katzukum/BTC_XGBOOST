@@ -12,8 +12,8 @@ service = DashboardService(PROJECT_ROOT)
 
 
 @eel.expose
-def get_dashboard_snapshot():
-    return service.get_snapshot()
+def get_dashboard_snapshot(timeframe="1m"):
+    return service.get_snapshot(timeframe=timeframe)
 
 
 @eel.expose

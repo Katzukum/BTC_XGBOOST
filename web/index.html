@@ -139,6 +139,11 @@
             <div style="font-size: 10px; color: #555; margin-top: 4px;">BTC/USD · AGGREGATED</div>
           </div>
           <div class="timeframe-selector">
+            <select id="chartSourceSelector" class="source-select"
+              style="margin-right: 10px; background: #1a1a1a; color: #fff; border: 1px solid #333; padding: 4px; border-radius: 4px;">
+              <option value="BINANCE">Binance</option>
+              <option value="HYPERLIQUID" selected>Hyperliquid</option>
+            </select>
             <button class="tf-btn active" data-tf="1m">1m</button>
             <button class="tf-btn" data-tf="5m">5m</button>
             <button class="tf-btn" data-tf="15m">15m</button>

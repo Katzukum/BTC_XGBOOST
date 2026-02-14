@@ -33,20 +33,28 @@ class TradeTracker:
         except sqlite3.OperationalError:
             print("Migrating DB: Adding entry_price column...")
             c.execute("ALTER TABLE forward_trades ADD COLUMN entry_price REAL")
+
+        # Check if profit_target exists, if not add it
+        try:
+            c.execute("SELECT profit_target FROM forward_trades LIMIT 1")
+        except sqlite3.OperationalError:
+            print("Migrating DB: Adding profit_target column...")
+            c.execute("ALTER TABLE forward_trades ADD COLUMN profit_target REAL")
             
         conn.commit()
         conn.close()
 
-    def log_trade(self, market_id, slug, question, end_date, side, prob, entry_price=None):
+    def log_trade(self, market_id, slug, question, end_date, side, prob, entry_price=None, profit_target=None):
         conn = sqlite3.connect(self.db_path)
         c = conn.cursor()
         try:
             c.execute('''
-                INSERT INTO forward_trades (id, market_slug, question, end_date, prediction_side, prediction_prob, entry_price, entry_time)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (market_id, slug, question, end_date, side, prob, entry_price, datetime.now(timezone.utc).isoformat()))
+                INSERT INTO forward_trades (id, market_slug, question, end_date, prediction_side, prediction_prob, entry_price, profit_target, entry_time)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (market_id, slug, question, end_date, side, prob, entry_price, profit_target, datetime.now(timezone.utc).isoformat()))
             conn.commit()
-            print(f"Logged trade: {side} on {slug} (Prob: {prob:.2f}, Price: {entry_price})")
+            print(f"Logged trade: {side} on {slug} (Prob: {prob:.2f}, Price: {entry_price}, TP: {profit_target})")
+            return market_id
         except sqlite3.IntegrityError:
             print(f"Trade {market_id} already logged.")
         finally:
@@ -54,11 +62,12 @@ class TradeTracker:
 
     def get_open_trades(self):
         conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row # Return rows as dict-like
         c = conn.cursor()
-        c.execute("SELECT id, market_slug FROM forward_trades WHERE status='OPEN'")
+        c.execute("SELECT * FROM forward_trades WHERE status='OPEN'")
         rows = c.fetchall()
         conn.close()
-        return rows
+        return [dict(row) for row in rows]
 
     def update_result(self, market_id, result_side, pnl):
         conn = sqlite3.connect(self.db_path)
@@ -71,3 +80,16 @@ class TradeTracker:
         conn.commit()
         conn.close()
         print(f"Updated trade {market_id}: Result {result_side}, PnL {pnl}")
+
+    def close_trade(self, market_id, pnl, reason):
+        """Closes a trade with a specific reason (SL, TP, EXPIRE)"""
+        conn = sqlite3.connect(self.db_path)
+        c = conn.cursor()
+        c.execute('''
+            UPDATE forward_trades
+            SET status='CLOSED', pnl=?, result_side=?
+            WHERE id=?
+        ''', (pnl, reason, market_id))
+        conn.commit()
+        conn.close()
+        print(f"Closed Trade {market_id}: PnL {pnl:.4f} ({reason})")

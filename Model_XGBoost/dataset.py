@@ -34,9 +34,16 @@ class DatasetBuilder:
             print(f"Processing {tf} data...")
             # Fetch
             df = self.db.get_candles(source, "BTCUSDT", tf, limit=limit)
+            
             if df.empty:
-                print(f"Warning: No data for {tf}. Skipping.")
-                continue
+                # Fallback: Resample from 1m if available
+                if tf != "1m" and "1m" in dfs:
+                    print(f"Warning: No data for {tf} in DB. Resampling from 1m...")
+                    df = self._resample_from_1m(dfs["1m"], tf)
+                
+                if df.empty:
+                    print(f"Warning: No data for {tf}. Skipping.")
+                    continue
             
             # Sort by time just in case
             df = df.sort_values('timestamp')
@@ -64,7 +71,10 @@ class DatasetBuilder:
                 df = df.rename(columns=rename_map)
             
             # Set index to timestamp for merging
-            df = df.set_index('timestamp')
+            # If generated via resample, it might already be index?
+            if 'timestamp' in df.columns:
+                df = df.set_index('timestamp')
+            
             dfs[tf] = df
 
         if "1m" not in dfs:
@@ -233,6 +243,47 @@ class DatasetBuilder:
                 df[f'n_{col}'] = df[col] / prev_close - 1
         
         return df
+
+    def _resample_from_1m(self, df_1m: pd.DataFrame, target_tf: str) -> pd.DataFrame:
+        """
+        Resamples 1m DataFrame (with int64 ms index) to target timeframe.
+        Returns DataFrame with timestamp column and OHLCV.
+        """
+        # Select Only OHLCV
+        df = df_1m[['open', 'high', 'low', 'close', 'volume']].copy()
+        
+        # Convert index to Datetime for resampling
+        df.index = pd.to_datetime(df.index, unit='ms')
+        
+        # Parse minutes
+        if target_tf.endswith('m'):
+            minutes = int(target_tf[:-1])
+            rule = f"{minutes}min"
+        elif target_tf.endswith('h'):
+            minutes = int(target_tf[:-1]) * 60
+            rule = f"{minutes}min"
+        else:
+            rule = target_tf
+            
+        # Resample (Crypto standard: left label, left closed)
+        resampled = df.resample(rule, closed='left', label='left').agg({
+            'open': 'first',
+            'high': 'max',
+            'low': 'min',
+            'close': 'last',
+            'volume': 'sum'
+        })
+        
+        # Drop empty bins
+        resampled = resampled.dropna()
+        
+        # Restore timestamp column (int64 ms)
+        resampled['timestamp'] = resampled.index.astype(np.int64) // 10**6
+        
+        # Reset index to make 'timestamp' a column (as expected by logic that follows)
+        # Actually logic says: if 'timestamp' in df.columns: set_index. 
+        # So returning with timestamp column is safe.
+        return resampled.reset_index(drop=True)
 
 if __name__ == "__main__":
     builder = DatasetBuilder()

@@ -2,7 +2,7 @@
 import requests
 import json
 import time
-import time
+
 from datetime import datetime, timezone
 
 class PolymarketClient:
@@ -36,74 +36,32 @@ class PolymarketClient:
 
     def find_next_btc_5m_market(self):
         """
-        Finds the next resolving BTC Up/Down 5m market.
-        Returns a dict with market details or None.
+        Finds the next resolving BTC Up/Down 5m market using direct slug lookup.
         """
-        # We need to find active markets.
-        # Searching for "Bitcoin 5m" or similar.
-        # The slugs usually follow a pattern but IDs are safer if we can list them.
-        # Let's try to query events with a keyword.
+        # Calculate current and next 5m epochs
+        now = datetime.now(timezone.utc)
+        remainder = now.minute % 5
+        current_epoch_time = now.replace(minute=now.minute - remainder, second=0, microsecond=0)
+        current_epoch = int(current_epoch_time.timestamp())
         
-        params = {
-            "limit": 50,
-            "active": "true",
-            "closed": "false",
-            "order": "endDate",
-            "ascending": "true",
-            "tag_id": "1", # Crypto? or just search
-        }
+        # We usually want the one closing in future. 
+        # Markets are usually named by their CLOSE time or START time?
+        # Sim trades use `btc-up-or-down-5m-{epoch}` where epoch is START time?
+        # Let's check a few future intervals to be safe.
         
-        # Searching is a bit tricky via undocumented API.
-        # Let's try the /events endpoint with a broad query if possible, or filtered.
-        # Best bet: Query markets sorted by endDate (soonest first)
+        epochs_to_check = [current_epoch, current_epoch + 300, current_epoch + 600]
         
-        url = f"{self.GAMMA_API}/markets"
-        # We want markets that are active, not closed.
-        # We can client-side filter for "Bitcoin" and "5m".
-        
-        try:
-            # Fetch a batch of upcoming expiring markets
-            # "tag_id": "1" is often Crypto. Let's try searching by keyword if supported or just listing.
-            # Gamma's GET /markets params are a bit guessy.
-            # Let's try fetching active markets with limit
+        for epoch in epochs_to_check:
+            # Slug format: btc-updown-5m-{epoch}
+            slug = f"btc-updown-5m-{epoch}"
+            # print(f"Checking slug: {slug}")
             
-            # Fetch a batch of markets
-            # "btc-up-or-down-5m" is the series slug we found.
-            
-            params = {
-                "active": "true",
-                "closed": "false",
-                "order": "endDate",
-                "ascending": "true",
-                "limit": 100,
-                "q": "Bitcoin" # Broader search, then filter by series
-            }
-            res = self.session.get(url, params=params, timeout=10)
-            res.raise_for_status()
-            markets = res.json()
-            
-            print(f"Fetched {len(markets)} markets.")
-            
-            for m in markets:
-                # Filter by seriesSlug
-                # Found seriesSlug: "btc-up-or-down-5m"
-                series = m.get('seriesSlug', '')
+            market = self.get_market_by_slug(slug)
+            if market and market.get('closed') is False:
+                # print(f"Found active market: {slug}")
+                return market
                 
-                # Check for "btc-up-or-down-5m"
-                if series == 'btc-up-or-down-5m':
-                     return m
-                
-                # Fallback: check slug for similar pattern if series is missing
-                slug = m.get('slug', '')
-                if 'btc-updown-5m' in slug.lower():
-                    return m
-                     
-            return None
-            return None
-            
-        except Exception as e:
-            print(f"Error fetching markets: {e}")
-            return None
+        return None
 
     def get_market(self, condition_id):
         url = f"{self.GAMMA_API}/markets/{condition_id}"
@@ -155,3 +113,69 @@ class PolymarketClient:
             
         return None
 
+    def get_token_price(self, token_id, side='buy'):
+        """
+        Fetches the live price for a token from the CLOB.
+        """
+        url = f"{self.clob_api}/price"
+        params = {"token_id": token_id, "side": side}
+        try:
+            res = self.session.get(url, params=params, timeout=5)
+            # res.status_code might be 404 if no orders
+            if res.status_code == 200:
+                data = res.json()
+                return data.get('price')
+            return None
+        except Exception as e:
+            print(f"Error fetching price for {token_id}: {e}")
+            return None
+
+    def enrich_market_with_prices(self, market):
+        """
+        Updates the 'outcomePrices' in the market dict with live CLOB prices.
+        """
+        try:
+            # Parse outcomes and clobTokenIds
+            outcomes_str = market.get('outcomes', '[]')
+            clob_ids_str = market.get('clobTokenIds', '[]')
+            
+            if isinstance(outcomes_str, str):
+                outcomes = json.loads(outcomes_str)
+            else:
+                outcomes = outcomes_str
+                
+            if isinstance(clob_ids_str, str):
+                clob_ids = json.loads(clob_ids_str)
+            else:
+                clob_ids = clob_ids_str
+                
+            if not clob_ids or len(clob_ids) != len(outcomes):
+                return market
+
+            new_prices = []
+            for i, _ in enumerate(outcomes):
+                token_id = clob_ids[i]
+                price = self.get_token_price(token_id, side="buy")
+                # If no price, fallback to existing or 0
+                if price is None:
+                    # try to get from existing outcomePrices if available
+                    op_str = market.get('outcomePrices')
+                    if op_str:
+                         try:
+                             existing = json.loads(op_str) if isinstance(op_str, str) else op_str
+                             price = existing[i]
+                         except:
+                             price = 0
+                
+                new_prices.append(str(price) if price is not None else "0")
+            
+            # Update the market dict
+            # Frontend expects JSON string for outcomePrices usually, or we can just set it as list
+            # The current frontend handles both string and list.
+            market['outcomePrices'] = new_prices
+            # market['outcomePrices'] = json.dumps(new_prices) # Keep as list for internal use is better
+            
+            return market
+        except Exception as e:
+            print(f"Error enriching market prices: {e}")
+            return market

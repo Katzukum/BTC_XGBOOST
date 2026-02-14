@@ -11,20 +11,9 @@ class DashboardService:
         self.project_root = project_root
         self.ohlcv_db = os.path.join(project_root, "ohlcv.db")
         self.trades_db = os.path.join(project_root, "trades.db")
+        # Predictors are now managed externally by eel_app.py
 
-        model_dir = os.path.join(project_root, "Model-XGBoost")
-        if model_dir not in sys.path:
-            sys.path.append(model_dir)
-
-        self.predictor = None
-        try:
-            from predict import Predictor
-
-            self.predictor = Predictor(source="binance")
-        except Exception:
-            self.predictor = None
-
-    def _read_ohlcv(self, limit: int = 250, timeframe: str = "1m"):
+    def _read_ohlcv(self, source: str = "BINANCE", limit: int = 250, timeframe: str = "1m"):
         if not os.path.exists(self.ohlcv_db):
             return []
 
@@ -34,14 +23,24 @@ class DashboardService:
 
         # Fetch more data if aggregating
         fetch_limit = limit * minutes
+        
+        # Determine table name
+        # Source should be "binance" or "hyperliquid"
+        table_source = source.lower()
+        table_name = f"{table_source}_ohlcv_1m"
 
         conn = sqlite3.connect(self.ohlcv_db)
         cursor = conn.cursor()
         try:
+            # Check if table exists first to avoid error
+            cursor.execute(f"SELECT name FROM sqlite_master WHERE type='table' AND name='{table_name}'")
+            if not cursor.fetchone():
+                return []
+
             cursor.execute(
-                """
+                f"""
                 SELECT timestamp, open, high, low, close, volume
-                FROM binance_ohlcv_1m
+                FROM {table_name}
                 ORDER BY timestamp DESC
                 LIMIT ?
                 """,
@@ -129,7 +128,7 @@ class DashboardService:
             cursor.execute(
                 """
                 SELECT id, market_slug, prediction_side, prediction_prob,
-                       entry_time, status, result_side, pnl, entry_price
+                       entry_time, status, result_side, pnl, entry_price, profit_target
                 FROM forward_trades
                 ORDER BY entry_time DESC
                 LIMIT ?
@@ -156,6 +155,7 @@ class DashboardService:
                     "result_side": r[6],
                     "pnl": float(pnl) if pnl is not None else None,
                     "entry_price": float(r[8]) if r[8] is not None else None,
+                    "profit_target": float(r[9]) if r[9] is not None else None,
                 }
             )
         return trades
@@ -163,25 +163,25 @@ class DashboardService:
     def _safe_iso(self, millis: int):
         return datetime.fromtimestamp(millis / 1000, tz=timezone.utc).isoformat()
 
-    def _prediction(self):
-        if self.predictor is None:
-            return None
-
-        try:
-            pred = self.predictor.predict_latest()
-            if pred:
-                return {
-                    "time": str(pred["time"]),
-                    "prob_up": float(pred["prob_up"]),
-                }
-        except Exception:
-            return None
-        return None
-
-    def get_snapshot(self, timeframe: str = "1m"):
-        candles = self._read_ohlcv(timeframe=timeframe)
+    def get_snapshot(self, timeframe: str = "1m", source: str = "BINANCE", predictions: dict = None):
+        """
+        :param timeframe: Candle timeframe (e.g. 1m, 5m)
+        :param source: "BINANCE" or "HYPERLIQUID" for chart data
+        :param predictions: Dict of {source: {prob_up, time}}
+        """
+        candles = self._read_ohlcv(source=source, timeframe=timeframe)
         trades = self._read_trades()
-        prediction = self._prediction()
+        
+        # Prepare Predictions List
+        pm_odds = []
+        if predictions:
+            for src_name, pred_data in predictions.items():
+                if pred_data:
+                    pm_odds.append({
+                        "source": src_name,
+                        "prob_up": pred_data.get("prob_up", 0.5),
+                        "time": pred_data.get("time", "")
+                    })
 
         closes = [c["close"] for c in candles if c["close"] is not None]
         volumes = [c["volume"] for c in candles if c["volume"] is not None]
@@ -204,6 +204,7 @@ class DashboardService:
         next_window = now + timedelta(minutes=5 - (now.minute % 5), seconds=-now.second)
 
         order_feed = []
+        # Populate order feed from trades if available, otherwise dummies
         for t in trades[:12]:
             size = (t["entry_price"] or 0.5) * 10000
             side = t["side"]
@@ -216,19 +217,6 @@ class DashboardService:
                     "size": round(size, 2),
                 }
             )
-
-        if not order_feed:
-            for i in range(8):
-                side = "UP" if i % 2 == 0 else "DOWN"
-                order_feed.append(
-                    {
-                        "time": (now - timedelta(seconds=i * 33)).strftime("%H:%M:%S"),
-                        "window": "5m",
-                        "side": side,
-                        "entry": round(random.uniform(91, 98), 2),
-                        "size": round(random.uniform(1200, 6200), 2),
-                    }
-                )
 
         exchanges = ["BIN", "CB", "OKX", "KRK", "BYB", "DER", "HL"]
         signal_flow = [
@@ -261,7 +249,6 @@ class DashboardService:
                 "sharpe": round((mean(pnls) / (abs(max_dd) + 1.0)) * 8, 2) if pnls else 0.0,
                 "dd_limit": -5.0,
             },
-            "prediction": prediction,
             "charts": {
                 "timestamps": [self._safe_iso(c["timestamp"]) for c in candles][-120:],
                 "prices": closes[-120:],
@@ -273,8 +260,8 @@ class DashboardService:
             "signal_flow": signal_flow,
             "positions_log": trades[:18],
             "execution_pipeline": {
-                "cex_feeds": "Binance, Coinbase, OKX, Kraken",
-                "pm_odds": f"UP {round((prediction or {}).get('prob_up', 0.5) * 100, 1)}¢",
+                "cex_feeds": "Binance, Hyperliquid",
+                "pm_odds": pm_odds, # Now a list
                 "edge": f"edge {round(perf_pct / 6, 2)}%",
                 "kelly": f"f* {round(min(8.0, max(1.0, win_rate / 20)), 2)}%",
                 "exec": f"EV ${round(avg_trade, 2)}",
